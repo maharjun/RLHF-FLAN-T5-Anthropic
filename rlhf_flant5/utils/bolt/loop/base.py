@@ -5,9 +5,9 @@ from dataclasses import fields, is_dataclass
 import inspect
 from collections import OrderedDict
 
-from synth_orig_disc.utils.hydrashim import DictConfig
-from synth_orig_disc.utils.looputils import get_loop_interval, LoopInterval
-from synth_orig_disc.utils.data.loader import random_batch_dataset
+from rlhf_flant5.utils.hydrashim import DictConfig
+from rlhf_flant5.utils.looputils import get_loop_interval, LoopInterval
+from rlhf_flant5.utils.data.loader import random_batch_dataset
 from abc import ABC, abstractmethod
 
 def _have_same_parameters(func1, func2):

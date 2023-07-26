@@ -1,8 +1,8 @@
 import torch
 import numpy as np
-from synth_orig_disc.utils.ragged.ragged_tensor import RaggedTensor
-from synth_orig_disc.utils.ragged.ragged_array import RaggedArray
-from synth_orig_disc.utils.nested.nestedtree import map_structure
+from rlhf_flant5.utils.ragged.ragged_tensor import RaggedTensor
+from rlhf_flant5.utils.ragged.ragged_array import RaggedArray
+from rlhf_flant5.utils.nested.nestedtree import map_structure
 
 ##################################################################################
 # Nested dataset manipulation

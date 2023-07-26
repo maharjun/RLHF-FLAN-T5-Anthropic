@@ -15,7 +15,7 @@ def get_gpu_name_if_available(*args):
     """
     Wrapper to avoid circular imports
     """
-    from synth_orig_disc.utils.torchutils import get_gpu_name_if_available
+    from rlhf_flant5.utils.torchutils import get_gpu_name_if_available
     return get_gpu_name_if_available(*args)
 
 

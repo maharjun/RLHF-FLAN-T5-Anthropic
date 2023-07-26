@@ -2,9 +2,9 @@ import collections.abc
 import torch
 import numpy as np
 
-from synth_orig_disc.utils.ragged.ragged_tensor import RaggedTensor
-from synth_orig_disc.utils.ragged.ragged_array import RaggedArray
-from synth_orig_disc.utils.numpyutils import get_consistent_type
+from rlhf_flant5.utils.ragged.ragged_tensor import RaggedTensor
+from rlhf_flant5.utils.ragged.ragged_array import RaggedArray
+from rlhf_flant5.utils.numpyutils import get_consistent_type
 
 
 def is_atom(item):

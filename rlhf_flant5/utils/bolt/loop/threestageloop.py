@@ -8,12 +8,12 @@ from abc import ABC, abstractmethod
 
 from simmanager.tools import Timer
 
-from synth_orig_disc.utils.looputils import LoopInterval
-from synth_orig_disc.utils.hydrashim import DictConfig
-from synth_orig_disc.utils.data.loader import batch_dataset_for_one_epoch
+from rlhf_flant5.utils.looputils import LoopInterval
+from rlhf_flant5.utils.hydrashim import DictConfig
+from rlhf_flant5.utils.data.loader import batch_dataset_for_one_epoch
 
-from synth_orig_disc.utils.bolt.loop import TrainingLoop, periodic_action, with_trained_model
-from synth_orig_disc.utils.bolt.accumulators import Accumulator, Loggable
+from rlhf_flant5.utils.bolt.loop import TrainingLoop, periodic_action, with_trained_model
+from rlhf_flant5.utils.bolt.accumulators import Accumulator, Loggable
 
 # Abstract classes used for type indication
 class _LoggableAccumulator(Accumulator, Loggable):

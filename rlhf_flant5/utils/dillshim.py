@@ -3,7 +3,7 @@ This is a shim for dill to be used with torch (namely that when used in a projec
 that pickles torch objects, dill should be imported from this module).
 for example::
 
-    from synth_orig_disc.utils.dillshim import dill
+    from rlhf_flant5.utils.dillshim import dill
 
 The purpose of this shim is register the pickling and unpickling logic
 for certain native pytorch types such as torch random generators that
@@ -18,7 +18,7 @@ Additionally we register additional picklers for GP Models that are memory
 efficient. (They don't seem to work as intended. long standing bugfix)
 """
 
-from synth_orig_disc.utils.torchutils import get_device_name
+from rlhf_flant5.utils.torchutils import get_device_name
 
 import torch
 import io
@@ -38,7 +38,7 @@ class device_unpickler(dill.Unpickler):
 
     One can set the device in the class member `device` and unpickle a file as below::
 
-        from synth_orig_disc.utils.generic.dillshim import device_unpickler
+        from rlhf_flant5.utils.generic.dillshim import device_unpickler
 
         device_unpickler.device = torch.device('cpu')
         with open('pickle_file.p', 'rb') as fin:
@@ -46,7 +46,7 @@ class device_unpickler(dill.Unpickler):
 
     One may also set the device for each instance of the device_unpickler as follows::
 
-        from synth_orig_disc.utils.generic.dillshim import device_unpickler
+        from rlhf_flant5.utils.generic.dillshim import device_unpickler
 
         with open('pickle_file.p', 'rb') as fin:
             unpickler = device_unpickler(fin)

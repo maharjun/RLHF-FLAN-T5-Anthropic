@@ -2,7 +2,7 @@ from typing import List
 import numpy as np
 import logging
 
-logger = logging.getLogger('synth_orig_disc.utils.numpyutils')
+logger = logging.getLogger('rlhf_flant5.utils.numpyutils')
 
 _sizeof_numpy_unicode_char = np.dtype('U1').itemsize
 
