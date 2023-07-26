@@ -1,0 +1,21 @@
+.env/
+*.pyc
+.DS_Store
+*.egg-info
+ignored/
+__pycache__/
+.idea/
+.nfs*
+*.ipynb
+data_new/
+
+# vim
+.*.swp
+.*.swo
+
+# misc
+/alloc/
+/run/
+
+# Unison temp files
+.unison*
