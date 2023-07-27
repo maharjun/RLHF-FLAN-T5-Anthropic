@@ -1,0 +1,64 @@
+defaults:
+  - /simman_config
+
+# Simmanager Parameter overrides
+sim_name: Reward-Model-Training
+
+# Core Parameters
+seed: 103
+device_name: ${gpu_if_available:}
+
+# Data parameters
+data:
+  seed: 192
+  name: Anthropic/hh-rlhf
+  subdir: helpful-rejection-sampled
+  val_fraction: 0.1  # val as a fraction of train data
+
+# Model Parameters
+model:
+  transformer_name: google/flan-t5-small
+  attention_inner_dim: 256
+  pooling_output_dim: 256
+  readout_additional_layers: []
+
+# Training Parameters
+training:
+  optimizer:
+    type: AdamW  # Adam / AdamW
+    lr: 0.0001
+    weight_decay: 0.001
+
+  loop:
+    max_non_optim_vals: 20
+    train_batch_size: 128
+    val_batch_size: 128
+    n_epochs: 2
+
+    intervals:
+      validation:
+        interval_val: 20
+        interval_type: epochs
+        max_n_intervals: -1
+      train_status_update:
+        interval_val: 20
+        interval_type: epochs
+        max_n_intervals: -1
+      print_params:
+        interval_val: 150
+        interval_type: epochs
+        max_n_intervals: -1
+
+loggers:
+  train_dimenet:
+    name: rlhf_flant5.train_discriminator
+    level: INFO
+    to_stdout: True
+  config_parse:
+    name: rlhf_flant5.config_parse
+    level: INFO
+    to_stdout: True
+  data:
+    name: rlhf_flant5.data
+    level: INFO
+    to_stdout: True

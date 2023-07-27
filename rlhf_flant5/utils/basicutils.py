@@ -14,18 +14,10 @@ from loggingext.logsetup import create_shared_logger_data, configure_loggers
 from rlhf_flant5.utils.hydrashim import OmegaConf, DictConfig
 
 
-def get_sorted_subdirectories(parent_dir: Path, pattern) -> List[Path]:
-    all_subdirs = [d for d in parent_dir.iterdir() if d.is_dir()]
-    matching_subdirs = [d for d in all_subdirs if re.search(pattern, d.name)]
-    sorted_subdirs = natsorted(matching_subdirs, key=lambda x: x.name)
-    return sorted_subdirs
-
-
-def get_data_dir_from_env():
-    datadir = os.environ.get('DC50_DATA_DIR', None)
-    if not datadir:
-        raise KeyError("The environment variable DC50_DATA_DIR must be set and must point to the data directory")
-    return datadir
+def center_msg(msg, total_len=100, padding_char='='):
+    nb4 = max((total_len - len(msg)) // 2 - 1, 0)
+    naft = max(total_len - len(msg) - nb4 - 2, 0)
+    return f"{padding_char*nb4} {msg} {padding_char*naft}"
 
 
 def get_shared_logger_data(loggercfg: DictConfig):

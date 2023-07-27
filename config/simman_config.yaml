@@ -1,0 +1,24 @@
+# Essential for simmanager to work. silence all extraneous features of hydra
+defaults:
+  - override hydra/job_logging: none
+
+hydra:
+  run:
+    dir: .
+  output_subdir: null
+
+sim_name: "???"
+desc: "???"
+index: "???"
+extra_stuff: null  # example seed-${seed},${now:%H-%M-%S},${now:%Y-%m-%d}
+output_dir_name: "${join:
+                      ',',
+                      data-${joinlist: '-', ${.input_params.datavals}},
+                      desc-${.desc},
+                      index-${.index},
+                      ${.extra_stuff}}"
+sim_man:
+  write_protect_dirs: True
+  tee_stdx_to: null
+  open_desc_for_edit: False
+

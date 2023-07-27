@@ -47,6 +47,8 @@ class AttentionPooling(torch.nn.Module):
         self.n_inner_dim = n_inner_dim
         self.n_output_dim = n_output_dim
 
+        self.layer_norm = T5LayerNorm(n_input_dim)
+
         self.q = torch.nn.Linear(n_inner_dim, 1, bias=False)
         self.k = torch.nn.Linear(n_input_dim, n_inner_dim, bias=False)
         self.v = torch.nn.Linear(n_input_dim, n_inner_dim, bias=False)
@@ -56,9 +58,10 @@ class AttentionPooling(torch.nn.Module):
     def forward(self, inputs: torch.Tensor):
         # inputs = (batch, channels, input_dim) (pooling done across channels)
 
-        # inputs[i] = (batch, n_channels, n_input_dim)
-        # keys = (batch, n_channels, n_key_dim)
-        keys = self.k(inputs)
+        # inputs = (batch, n_channels, n_input_dim)
+        # keys = (batch, n_channels, n_inner_dim)
+        normed_inputs = self.layer_norm(inputs)
+        keys = self.k(normed_inputs)
 
         # attentions = (batch, n_channels)
         attentions = torch.softmax(self.q(keys).squeeze(2), dim=1)

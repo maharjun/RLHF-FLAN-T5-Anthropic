@@ -1,4 +1,20 @@
+from io import BytesIO
 import torch
+
+
+def copy_model_to_cpu(original_model):
+    """
+    This code is adapted from https://discuss.pytorch.org/t/how-to-make-a-copy-of-a-gpu-model-on-the-cpu/90955/4
+    """
+    # Save the model to memory from GPU
+    model_data_in_memory = BytesIO()
+    torch.save(original_model, model_data_in_memory)
+    model_data_in_memory.seek(0)
+
+    # Load the model from memory to CPU
+    model_in_cpu = torch.load(model_data_in_memory, map_location="cpu")
+    model_data_in_memory.close()
+    return model_in_cpu
 
 
 def random_seed(rng: torch.Generator):
