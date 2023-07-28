@@ -59,7 +59,7 @@ class RewardFromLayerwiseWeightedAttention(torch.nn.Module):
         super().__init__()
 
         self.pretrained_encoder = pretrained_encoder
-        self.layerwise_aggregators = [LayerStateAggregator(block, attention_inner_dim, pooling_output_dim) for block in pretrained_encoder.block]
+        self.layerwise_aggregators = torch.nn.ModuleList([LayerStateAggregator(block, attention_inner_dim, pooling_output_dim) for block in pretrained_encoder.block])
         self.cross_layer_weighted_pooling = WeightedPooling(len(pretrained_encoder.block))
 
         readout_input_dim = pooling_output_dim
