@@ -21,6 +21,8 @@ DEBUG = int(os.environ.get('RLHF_DEBUG', '0'))
 
 class LayerStateAggregator(torch.nn.Module):
     def __init__(self, block: T5Block, attention_inner_dim, output_dim):
+        super().__init__()
+
         def get_hidden_dim(block: T5Block):
             att_layer: T5LayerSelfAttention = block.layer[0]
             return att_layer.SelfAttention.d_model
@@ -29,13 +31,27 @@ class LayerStateAggregator(torch.nn.Module):
         self.layer_norm = T5LayerNorm(input_dim)
         self.attention_pooling = AttentionPooling(n_input_dim=input_dim,
                                                   n_inner_dim=attention_inner_dim)
-        self.readout = GeGLU(attention_inner_dim, output_dim)
+        self.readout = GeGLU(input_dim, output_dim)
 
     def forward(self, layer_output_states):
         """
         layer_output_states: should the output hidden states of the corresponding layer
         """
         return self.readout(self.attention_pooling(self.layer_norm(layer_output_states)))
+
+
+class SimplePerceptronLayer(torch.nn.Module):
+    def __init__(self, input_dim, output_dim):
+        super().__init__()
+
+        self.layer_norm = T5LayerNorm(input_dim)
+        self.W = torch.nn.Linear(input_dim, output_dim)
+
+    def forward(self, inputs):
+        normed_inputs = self.layer_norm(inputs)
+        outputs = self.W(normed_inputs)
+        outputs = torch.nn.functional.gelu(outputs, approximate='tanh')
+        return outputs
 
 
 class RewardFromLayerwiseWeightedAttention(torch.nn.Module):
@@ -50,9 +66,9 @@ class RewardFromLayerwiseWeightedAttention(torch.nn.Module):
         readout_layers = []
         if readout_additional_layers:
             for lsize in readout_additional_layers:
-                readout_layers.append(torch.nn.Linear(readout_input_dim, lsize, bias=False))
+                readout_layers.append(SimplePerceptronLayer(readout_input_dim, lsize, bias=False))
                 readout_input_dim = lsize
-        readout_layers.append(torch.nn.Linear(readout_input_dim, lsize))
+        readout_layers.append(SimplePerceptronLayer(readout_input_dim, 1))
         self.readout_layers = torch.nn.ModuleList(readout_layers)
 
     def forward(self, tokenized_input: BatchEncoding):
@@ -71,11 +87,11 @@ class RewardFromLayerwiseWeightedAttention(torch.nn.Module):
         predicted_reward = out.squeeze(-1)
         return predicted_reward
 
-    # This affects parameters call as well
-    def named_parameters(self):
-        for x in super(torch.nn.Module, self).named_parameters():
-            if not x[0].startswith('pretrained_encoder'):
-                yield x
+    # # This affects parameters call as well
+    # def named_parameters(self):
+    #     for x in super(torch.nn.Module, self).named_parameters():
+    #         if not x[0].startswith('pretrained_encoder'):
+    #             yield x
 
     def train(self, mode: bool=True):
         super().train(mode)

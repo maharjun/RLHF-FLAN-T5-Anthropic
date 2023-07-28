@@ -7,21 +7,17 @@ from transformers.models.t5.modeling_t5 import T5LayerNorm
 
 
 class WeightedPooling(torch.nn.Module):
-    def __init__(self, n_channels: int, normalize_output=False):
+    def __init__(self, n_channels: int):
         super().__init__()
-        self.W = torch.nn.Parameter(torch.randn(n_channels)/torch.sqrt(n_channels))
-        self.normalize_output = normalize_output
+        n_channels_float = torch.as_tensor(n_channels, dtype=torch.float32)
+        self.W = torch.nn.Parameter(torch.randn(n_channels)/torch.sqrt(n_channels_float))
 
 
     def forward(self, inputs):
         # inputs = (batch, channels, input_dim) (pooling done across channels)
         # outputs = (batch, input_dim)
-        weighted_sum = torch.einsum('j,ijk->ik', self.W, self.inputs)
-        if self.normalize_output:
-            variance = weighted_sum.pow(2).sum(-1, keepdim=1)
-            return weighted_sum*torch.rsqrt(variance + self.variance_epsilon)
-        else:
-            return weighted_sum
+        weighted_sum = torch.einsum('j,ijk->ik', self.W, inputs)
+        return weighted_sum
 
 
 class AveragePooling(torch.nn.Module):

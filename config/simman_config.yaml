@@ -13,7 +13,6 @@ index: "???"
 extra_stuff: null  # example seed-${seed},${now:%H-%M-%S},${now:%Y-%m-%d}
 output_dir_name: "${join:
                       ',',
-                      data-${joinlist: '-', ${.input_params.datavals}},
                       desc-${.desc},
                       index-${.index},
                       ${.extra_stuff}}"

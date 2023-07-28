@@ -56,7 +56,7 @@ def batch_indices_for_one_epoch(num_data_per_epoch, batch_size: int, generator: 
 
     current_cursor = 0
     if generator is not None:
-        if not generator.device != device:
+        if not generator.device == device:
             raise TypeError(f"batch_input_for_one_epoch: The device of the dataset {device}"
                             f" does not match the device of the random generator {generator.device}")
         shuffle_inds = torch.randperm(num_data, device=generator.device, dtype=torch.int64, generator=generator)
