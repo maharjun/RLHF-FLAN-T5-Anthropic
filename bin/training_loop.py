@@ -16,10 +16,14 @@ from rlhf_flant5.utils.hydrashim import DictConfig
 # from rlhf_flant5.utils.data.loader import random_batch_dataset
 from rlhf_flant5.utils.torchutils import random_seed
 from rlhf_flant5.utils.torchutils import copy_model_to_cpu
-from rlhf_flant5.utils.looputils import get_loop_interval, LoopInterval
+from rlhf_flant5.utils.looputils import get_loop_interval, LoopInterval, NeverLoopInterval
 
 from rlhf_flant5.utils.data.loader import random_batch_dataset
 from rlhf_flant5.utils.data.loader import batch_indices_for_one_epoch
+
+@dataclass
+class GlobalLogInfo:
+    global_step: int
 
 
 class MainModule(torch.nn.Module):
@@ -44,8 +48,14 @@ class Tracker(ABC):
     #     self.logger = logger
     #     self.stage_name = stage_name
 
+    def attach_global_info(self, global_info: GlobalLogInfo):
+        self.global_info = global_info
+        for x in self.__dict__.values():
+            if isinstance(x, Tracker):
+                x.attach_global_info(global_info)
+
     @abstractmethod
-    def update(self, module_output: MainModule.Output):
+    def update(self, module_output: MainModule.Output, time=None):
         ...
 
     @abstractmethod
@@ -55,6 +65,24 @@ class Tracker(ABC):
     @abstractmethod
     def log(self):
         ...
+
+
+class TimedTracker(Tracker):
+    def __init__(self):
+        pass
+
+    def update_time(self, time):
+        if not isinstance(time, float):
+            raise TypeError("TimedTracker.update_time, Expected float for time")
+
+        if not hasattr(self, 'total_time'):
+            self.total_time = time
+        else:
+            self.total_time += time
+
+    def reset_time(self):
+        self.total_time = 0
+
 
 class ValidationTracker(Tracker):
     # def __init__(self, logger, stage_name):
@@ -111,6 +139,7 @@ def log_periodic_action(logger, loop_interval :LoopInterval, action_name: str, e
 def train_status_message(train_tracker):
     train_tracker.log()
     train_tracker.reset()
+    train_tracker.reset_time()
 
 
 def evaluation(stage_name: str, main_module: MainModule, dataset: Dataset, batch_size, data_rng, tracker, logger,
@@ -148,21 +177,20 @@ def evaluation(stage_name: str, main_module: MainModule, dataset: Dataset, batch
 
     tracker.reset()
 
-def verify_tracker(tracker_name, tracker, is_validation):
+def verify_tracker(tracker_name, tracker, is_validation, is_timed):
+
+    required_methods = ('update', 'reset', 'log')
     if is_validation:
-        msg = f'{tracker_name}, of type {type(tracker)} should implement the update, reset, log, and validation_loss methods'
-    else:
-        msg = f'{tracker_name}, of type {type(tracker)} should implement the update, reset, and log methods'
+        required_methods += ('validation_loss',)
+    if is_timed:
+        required_methods += ('update_time', 'reset_time')
+
+    msg = f"{tracker_name}, of type {type(tracker)} should implement the {', '.join(required_methods)} methods"
 
     missing_methods = []
-    if not (hasattr(tracker, 'update') and callable(tracker.update)):
-        missing_methods.append('update')
-    if not (hasattr(tracker, 'reset') and callable(tracker.reset)):
-        missing_methods.append('reset')
-    if not (hasattr(tracker, 'log') and callable(tracker.log)):
-        missing_methods.append('log')
-    if is_validation and not (hasattr(tracker, 'validation_loss') and callable(tracker.validation_loss)):
-        missing_methods.append('validation_loss')
+    for methname in required_methods:
+        if not (hasattr(tracker, methname) and callable(getattr(tracker, methname))):
+            missing_methods.append(methname)
 
     if missing_methods:
         raise TypeError(f"{msg}. Missing methods {{{', '.join(missing_methods)}}}")
@@ -170,12 +198,15 @@ def verify_tracker(tracker_name, tracker, is_validation):
 
 def run_train_eval_loop(dataset: DatasetDict, main_module: MainModule, optimizer: torch.optim.Optimizer,
                         loop_params: DictConfig, data_rng: torch.Generator,
-                        train_tracker: Tracker, val_tracker: ValidationTracker, test_tracker: Tracker,
-                        logger: logging.Logger):
+                        train_tracker: TimedTracker, val_tracker: ValidationTracker, test_tracker: Tracker,
+                        logger: logging.Logger,
+                        scheduler: Optional[torch.optim.lr_scheduler.LRScheduler] = None,
+                        progress_tracker: Optional[Tracker] = None):
 
-    verify_tracker('train_tracker', train_tracker, is_validation=False)
-    verify_tracker('val_tracker', val_tracker, is_validation=True)
-    verify_tracker('test_tracker', test_tracker, is_validation=True)
+    verify_tracker('train_tracker', train_tracker, is_validation=False, is_timed=True)
+    verify_tracker('val_tracker', val_tracker, is_validation=True, is_timed=False)
+    verify_tracker('test_tracker', test_tracker, is_validation=True, is_timed=False)
+    train_timer = Timer(logger=None)
 
     train_rng, val_rng = init_train_val_rngs(data_rng, logger)
 
@@ -196,12 +227,26 @@ def run_train_eval_loop(dataset: DatasetDict, main_module: MainModule, optimizer
     model_queue = ModelQueue(loop_params.max_non_optim_vals+1)
 
     # Initiate loop interval counters
-    validation_LC = get_loop_interval(len(train_dataset), train_batch_size, **loop_params.intervals.validation, split_across_epochs=False)
-    train_status_update_LC = get_loop_interval(len(train_dataset), train_batch_size, **loop_params.intervals.train_status_update, split_across_epochs=False)
-    
+    validation_LI = get_loop_interval(len(train_dataset), train_batch_size, **loop_params.intervals.validation, split_across_epochs=False)
+    train_status_update_LI = get_loop_interval(len(train_dataset), train_batch_size, **loop_params.intervals.train_status_update, split_across_epochs=False)
+    progress_logging_LI = NeverLoopInterval()
+    if progress_tracker is not None:
+        progress_logging_LI = get_loop_interval(len(train_dataset), train_batch_size, **loop_params.intervals.progress_logging)
+
+
+    global_info = GlobalLogInfo(global_step=0)
+    train_tracker.attach_global_info(global_info)
+    val_tracker.attach_global_info(global_info)
+    test_tracker.attach_global_info(global_info)
+    if progress_tracker is not None:
+        progress_tracker.attach_global_info(global_info)
+
     epoch_counter = 0
     batch_counter = 0
     sample_counter = 0
+    global_info.global_step = 0
+
+    optimizer.zero_grad(set_to_none=True)
 
     # train_data_loader = torch.utils.data.DataLoader(dataset=train_dataset,
     #                                                 batch_size=train_batch_size, 
@@ -218,22 +263,26 @@ def run_train_eval_loop(dataset: DatasetDict, main_module: MainModule, optimizer
 
     train_data_loader = random_batch_dataset(train_dataset, train_batch_size, train_rng)
     for batch_dataset_struct, _ in train_data_loader:
-        main_module.train()
-        module_output: MainModule.Output = main_module.output(batch_dataset_struct)
-        main_module.backward(module_output)
+        with train_timer("Training Timing"):
+            main_module.train()
+            module_output: MainModule.Output = main_module.output(batch_dataset_struct)
+            main_module.backward(module_output)
 
         # Update train metrics etc
         with torch.no_grad():
             train_tracker.update(module_output)
+            train_tracker.update_time(train_timer.profile_list[-1][1])
+            if progress_tracker is not None:
+                progress_tracker.update(module_output)
 
-        optimizer.zero_grad(set_to_none=True)
         optimizer.step()
+        optimizer.zero_grad(set_to_none=True)
 
-        if train_status_update_LC.is_interval_complete():
-            log_periodic_action(logger, train_status_update_LC, 'Status Update', epoch_counter, batch_counter)
+        if train_status_update_LI.is_interval_complete():
+            log_periodic_action(logger, train_status_update_LI, 'Status Update', epoch_counter, batch_counter)
             train_status_message(train_tracker)  # Also resets tracker
 
-        if validation_LC.is_interval_complete():
+        if validation_LI.is_interval_complete():
             evaluation(stage_name='Validation',
                        main_module=main_module,
                        dataset=val_dataset,
@@ -244,32 +293,42 @@ def run_train_eval_loop(dataset: DatasetDict, main_module: MainModule, optimizer
                        n_data_to_run=n_val_data,
                        model_queue=model_queue)
 
+        if progress_logging_LI.is_interval_complete():
+            log_periodic_action(logger, progress_logging_LI, 'Logging Progress', epoch_counter, batch_counter)
+            progress_tracker.log()
+            progress_tracker.reset()
+
         batch_counter += 1
         sample_counter += train_batch_size
+        global_info.global_step += 1
         if sample_counter >= len(train_dataset):
             batch_counter = 0
             sample_counter -= len(train_dataset)
             epoch_counter += 1
+
+            if scheduler is not None:
+                scheduler.step()
 
         if epoch_counter >= n_epochs or \
            (epoch_counter == n_epochs and batch_counter <= n_batches) \
            or model_queue.no_improvement():
             break
 
-    if train_status_update_LC.iters_since_last_interval() > 0:
-        log_periodic_action(train_status_update_LC, 'Status Update', epoch_counter, batch_counter, final_action=True)
+    if train_status_update_LI.iters_since_last_interval() > 0:
+        log_periodic_action(logger, train_status_update_LI, 'Status Update', epoch_counter, batch_counter, final_action=True)
         train_status_message(train_tracker)
 
-    if validation_LC.iters_since_last_interval() > 0:
+    if validation_LI.iters_since_last_interval() > 0:
         # Note that the above condition also means that the loop has not quit due to no improvement
         evaluation(stage_name='Validation',
                    main_module=main_module,
                    dataset=val_dataset,
+                   batch_size=val_batch_size,
                    data_rng=val_rng,
                    tracker=val_tracker,
                    logger=logger,
                    model_queue=model_queue,
-                   show_progress=True)
+                   n_data_to_run=n_val_data)
 
     # load the best module into main_module
     model_queue.load_best_module_into(main_module)
@@ -282,6 +341,7 @@ def run_train_eval_loop(dataset: DatasetDict, main_module: MainModule, optimizer
                batch_size=val_batch_size,
                data_rng=None,  # No shuffling
                tracker=test_tracker,
+               logger=logger,
                show_progress=True)
 
     return main_module

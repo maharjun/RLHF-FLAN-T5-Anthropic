@@ -1,0 +1,5 @@
+reward_model_type: RewardFromLayerwiseWeightedAttention
+reward_model:
+  pooling_output_dim: 256
+  n_blocks_to_use: 4
+  readout_additional_layers: []

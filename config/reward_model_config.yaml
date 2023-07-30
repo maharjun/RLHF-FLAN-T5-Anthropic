@@ -1,12 +1,14 @@
 defaults:
   - /simman_config
+  - model: attention_pooled_decoder
 
 # Simmanager Parameter overrides
 sim_name: Reward-Model-Training
 
 # Core Parameters
 seed: 103
-device_name: ${gpu_if_available:}
+device_name: ${gpu_if_available:0}
+use_multi_gpu_if_available: True
 
 # Data parameters
 data:
@@ -14,37 +16,44 @@ data:
   name: Anthropic/hh-rlhf
   subdir: helpful-rejection-sampled
   val_fraction: 0.1  # val as a fraction of train data
+  max_tokens: 512
 
 # Model Parameters
 model:
   transformer_name: google/flan-t5-small
-  attention_inner_dim: 256
-  pooling_output_dim: 256
-  readout_additional_layers: []
+  train_transformer: False
+  use_pretrained_output: True
+
 
 # Training Parameters
 training:
   optimizer:
-    type: AdamW  # Adam / AdamW
-    lr: 0.0001
-    weight_decay: 0.001
+    type: Adam  # Adam / AdamW
+    init_lr: 0.001
+    final_lr: 0.0001
+    weight_decay: 0.0
+    correct_bias: False
 
   loop:
     max_non_optim_vals: 20
-    train_batch_size: 32
-    val_batch_size: 32
-    n_val_data: 64
-    n_epochs: 0
-    n_batches: 2
+    train_batch_size: 512
+    val_batch_size: 256
+    n_val_data: 1024
+    n_epochs: 10
+    n_batches: 0
 
     intervals:
       validation:
-        interval_val: 40
-        interval_type: batches
+        interval_val: 3
+        interval_type: per-epoch
         max_n_intervals: -1
       train_status_update:
+        interval_val: 24
+        interval_type: per-epoch
+        max_n_intervals: -1
+      progress_logging:
         interval_val: 10
-        interval_type: batches
+        interval_type: per-epoch
         max_n_intervals: -1
 
 loggers:
