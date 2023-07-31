@@ -1,6 +1,6 @@
 defaults:
   - /simman_config
-  - model: attention_pooled_decoder
+  - model: attention_pooled_encoder
 
 # Simmanager Parameter overrides
 sim_name: Reward-Model-Training
@@ -14,9 +14,10 @@ use_multi_gpu_if_available: True
 data:
   seed: 192
   name: Anthropic/hh-rlhf
-  subdir: helpful-rejection-sampled
+  subdirs: [harmless-base, helpful-base, helpful-online, helpful-rejection-sampled]
   val_fraction: 0.1  # val as a fraction of train data
   max_tokens: 512
+  pretrain_batch_size_per_device: 128
 
 # Model Parameters
 model:
@@ -29,22 +30,22 @@ model:
 training:
   optimizer:
     type: Adam  # Adam / AdamW
-    init_lr: 0.001
-    final_lr: 0.0001
+    init_lr: 1.0e-5
+    final_lr: 2.0e-6
     weight_decay: 0.0
     correct_bias: False
 
   loop:
-    max_non_optim_vals: 20
+    max_non_optim_vals: 10
     train_batch_size: 512
-    val_batch_size: 256
-    n_val_data: 1024
+    val_batch_size: 512
+    n_val_data: 8196
     n_epochs: 10
     n_batches: 0
 
     intervals:
       validation:
-        interval_val: 3
+        interval_val: 10
         interval_type: per-epoch
         max_n_intervals: -1
       train_status_update:
@@ -52,6 +53,10 @@ training:
         interval_type: per-epoch
         max_n_intervals: -1
       progress_logging:
+        interval_val: 40
+        interval_type: per-epoch
+        max_n_intervals: -1
+      checkpointing:
         interval_val: 10
         interval_type: per-epoch
         max_n_intervals: -1

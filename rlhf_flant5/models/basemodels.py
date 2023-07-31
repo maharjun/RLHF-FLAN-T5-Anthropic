@@ -13,9 +13,8 @@ class PretrainedEmbeddingsModel(torch.nn.Module):
         self.calculate_only_pretrained = False
 
     def full_forward(self, *args):
-        out = self.pretrained_embedding(*args)
-        self.forward_with_PTE(self.PTE_tensors_from_dict(out))
-        return self.forward_with_PTE(out)
+        pretrained_out = self.pretrained_embedding(*args)
+        return self.forward_with_PTE(*self.PTE_tensors_from_dict(pretrained_out))
 
     def forward(self, *args, **kwargs):
         if self.calculate_only_pretrained:

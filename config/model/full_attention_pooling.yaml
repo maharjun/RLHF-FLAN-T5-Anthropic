@@ -1,0 +1,6 @@
+reward_model_type: RewardFromLayerwiseAttention
+reward_model:
+  layer_pooling_output_dim: 256
+  cross_layer_pooling_output_dim: 256
+  n_blocks_to_use: 4
+  readout_additional_layers: []

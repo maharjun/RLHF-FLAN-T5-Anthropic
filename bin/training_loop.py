@@ -1,4 +1,5 @@
 import logging
+import os
 from typing import Optional
 from dataclasses import dataclass
 from collections import deque
@@ -12,6 +13,7 @@ from simmanager.tools import Timer
 from datasets import DatasetDict, Dataset
 from rlhf_flant5.utils.basicutils import center_msg
 from rlhf_flant5.utils.hydrashim import DictConfig
+from rlhf_flant5.utils.dillshim import dill
 
 # from rlhf_flant5.utils.data.loader import random_batch_dataset
 from rlhf_flant5.utils.torchutils import random_seed
@@ -93,6 +95,17 @@ class ValidationTracker(Tracker):
         ...
 
 
+class Checkpointer:
+    def __init__(self, output_filepath):
+        self.output_filepath = output_filepath
+
+    def save_model(self, model):
+        temp_filepath = self.output_filepath + '.temp'
+        with open(temp_filepath, 'wb') as fout:
+            dill.dump(model, fout)
+        os.rename(temp_filepath, self.output_filepath)
+
+
 class ModelQueue:
     def __init__(self, queue_size):
         self.model_queue = deque([None]*queue_size, maxlen=queue_size)
@@ -108,7 +121,7 @@ class ModelQueue:
         main_module.load_state_dict(self.model_queue[min_eval_loss_queue_ind])
 
     def no_improvement(self):
-        self.val_loss_queue.index(min(self.val_loss_queue)) == 0
+        return self.val_loss_queue.index(min(self.val_loss_queue)) == 0
 
 
 def init_train_val_rngs(data_rng: torch.Generator, logger: logging.Logger):
@@ -200,6 +213,7 @@ def run_train_eval_loop(dataset: DatasetDict, main_module: MainModule, optimizer
                         loop_params: DictConfig, data_rng: torch.Generator,
                         train_tracker: TimedTracker, val_tracker: ValidationTracker, test_tracker: Tracker,
                         logger: logging.Logger,
+                        checkpointer: Checkpointer,
                         scheduler: Optional[torch.optim.lr_scheduler.LRScheduler] = None,
                         progress_tracker: Optional[Tracker] = None):
 
@@ -207,6 +221,7 @@ def run_train_eval_loop(dataset: DatasetDict, main_module: MainModule, optimizer
     verify_tracker('val_tracker', val_tracker, is_validation=True, is_timed=False)
     verify_tracker('test_tracker', test_tracker, is_validation=True, is_timed=False)
     train_timer = Timer(logger=None)
+    timer = Timer(logger=logger, log_level='INFO')
 
     train_rng, val_rng = init_train_val_rngs(data_rng, logger)
 
@@ -229,6 +244,7 @@ def run_train_eval_loop(dataset: DatasetDict, main_module: MainModule, optimizer
     # Initiate loop interval counters
     validation_LI = get_loop_interval(len(train_dataset), train_batch_size, **loop_params.intervals.validation, split_across_epochs=False)
     train_status_update_LI = get_loop_interval(len(train_dataset), train_batch_size, **loop_params.intervals.train_status_update, split_across_epochs=False)
+    checkpointing_LI = get_loop_interval(len(train_dataset), train_batch_size, **loop_params.intervals.checkpointing, split_across_epochs=False)
     progress_logging_LI = NeverLoopInterval()
     if progress_tracker is not None:
         progress_logging_LI = get_loop_interval(len(train_dataset), train_batch_size, **loop_params.intervals.progress_logging)
@@ -283,6 +299,7 @@ def run_train_eval_loop(dataset: DatasetDict, main_module: MainModule, optimizer
             train_status_message(train_tracker)  # Also resets tracker
 
         if validation_LI.is_interval_complete():
+            log_periodic_action(logger, progress_logging_LI, 'Validation', epoch_counter, batch_counter)
             evaluation(stage_name='Validation',
                        main_module=main_module,
                        dataset=val_dataset,
@@ -297,6 +314,11 @@ def run_train_eval_loop(dataset: DatasetDict, main_module: MainModule, optimizer
             log_periodic_action(logger, progress_logging_LI, 'Logging Progress', epoch_counter, batch_counter)
             progress_tracker.log()
             progress_tracker.reset()
+
+        if checkpointing_LI.is_interval_complete():
+            log_periodic_action(logger, checkpointing_LI, 'Saving Checkpoint', epoch_counter, batch_counter)
+            with timer("Saving Model Checkpoint"):
+                checkpointer.save_model(main_module)
 
         batch_counter += 1
         sample_counter += train_batch_size
@@ -320,6 +342,7 @@ def run_train_eval_loop(dataset: DatasetDict, main_module: MainModule, optimizer
 
     if validation_LI.iters_since_last_interval() > 0:
         # Note that the above condition also means that the loop has not quit due to no improvement
+        log_periodic_action(logger, progress_logging_LI, 'Validation', epoch_counter, batch_counter)
         evaluation(stage_name='Validation',
                    main_module=main_module,
                    dataset=val_dataset,
@@ -334,7 +357,7 @@ def run_train_eval_loop(dataset: DatasetDict, main_module: MainModule, optimizer
     model_queue.load_best_module_into(main_module)
 
     # perform testing
-    logger.info(f"Performing Final Testing on {len(test_dataset)} points")
+    logger.info(f"Performing Final Testing on {len(test_dataset)} points with best model")
     evaluation(stage_name='Testing',
                main_module=main_module,
                dataset=test_dataset,

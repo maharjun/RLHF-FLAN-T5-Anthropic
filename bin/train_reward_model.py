@@ -14,6 +14,7 @@ from rlhf_flant5.utils.hydrashim import hydra, DictConfig
 from rlhf_flant5.utils.dillshim import dill
 
 from training_loop import run_train_eval_loop
+from training_loop import Checkpointer
 
 from bin.train_reward_aux import RewardTracker
 from bin.train_reward_aux import RewardProgressTracker
@@ -48,17 +49,20 @@ def main(cfg: DictConfig, output_paths: Paths):
 
     with timer("Loading and splitting the data (need to split val data additionally)"):
         if main_module.use_pretrained_output:
-            dataset: DatasetDict = prepare_dataset(data_params, main_module.tokenizer, data_rng, pretrainer=main_module.reward_model)
+            pretrainer = main_module.reward_model
+        else:
+            pretrainer = None
 
+        dataset: DatasetDict = prepare_dataset(data_params, main_module.tokenizer, data_rng, pretrainer=pretrainer)
         dataset['train'] = dataset['train'].with_format('torch', device=cfg.device_name)
         dataset['val'] = dataset['val'].with_format('torch', device=cfg.device_name)
         dataset['test'] = dataset['test'].with_format('torch', device=cfg.device_name)
 
     eff_n_epochs = train_params.loop.n_epochs + int(train_params.loop.n_batches > 0)
     optimizer, scheduler = init_optimizer(main_module, train_params.optimizer, eff_n_epochs)
-
     with timer("Running the Full Training Loop"):
         tensorboard_output_dir = opj(output_paths.simulation_path, 'tensorboard')
+        checkpointer = Checkpointer(opj(output_paths.simulation_path, 'reward_model_cp.p'))
         main_module = run_train_eval_loop(dataset=dataset, 
                                           main_module=main_module, 
                                           optimizer=optimizer,
@@ -68,6 +72,7 @@ def main(cfg: DictConfig, output_paths: Paths):
                                           val_tracker=RewardTracker(logger, 'Validation', device, tensorboard_output_dir),
                                           test_tracker=RewardTracker(logger, 'Testing', device, tensorboard_output_dir),
                                           logger=logger,
+                                          checkpointer=checkpointer,
 
                                           # optional
                                           scheduler=scheduler,
@@ -77,6 +82,5 @@ def main(cfg: DictConfig, output_paths: Paths):
         dill.dump(main_module, fout, protocol=-1)
 
 if __name__ == '__main__':
-    # import ipdb; ipdb.set_trace()
     simmanager_context_decorator.debug = True
     main()

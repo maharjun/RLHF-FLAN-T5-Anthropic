@@ -2,7 +2,7 @@ import os
 import logging
 from dataclasses import dataclass
 from math import pow
-from typing import Optional
+from typing import Optional, List
 
 import torch
 import numpy as np
@@ -13,6 +13,11 @@ from transformers import T5Model, AutoTokenizer, AutoConfig
 from transformers.models.t5.modeling_t5 import T5ForConditionalGeneration
 from transformers.models.t5.tokenization_t5_fast import T5TokenizerFast
 from transformers.models.t5.configuration_t5 import T5Config
+
+from datasets import load_dataset, DatasetDict, Dataset
+from datasets import Features, Value
+from datasets import Array2D, Array3D, Array4D, Array5D
+from datasets import concatenate_datasets, NamedSplit
 
 from rlhf_flant5.utils.basicutils import getFrameDir
 from rlhf_flant5.utils.hydrashim import DictConfig
@@ -29,15 +34,14 @@ from training_loop import TimedTracker
 
 from torchmetrics.aggregation import MeanMetric
 from torchmetrics.classification import BinaryAccuracy
-from datasets import load_dataset, DatasetDict, Dataset
-from datasets import Features
-from datasets import Array2D, Array3D, Array4D, Array5D
 
 def get_float_feature_from_sample_array(array: torch.Tensor):
-    if array.ndim <= 2:
-        return None
+    if array.ndim <= 1:
+        return Value('float32')
 
     extra_dims = array.ndim - 1
+    if extra_dims == 1:
+        return [Value('float32')]
     if extra_dims == 2:
         return Array2D(array.shape[1:], 'float32')
     if extra_dims == 3:
@@ -78,7 +82,8 @@ class RewardMainModule(MainModule):
             
         self.use_pretrained_output = model_params.use_pretrained_output
         if self.use_pretrained_output and model_params.train_transformer:
-            raise RuntimeError("use_pretrained_output cannot be True if model_params.train_transformer is True")
+            logger.warning("use_pretrained_output assumed False because model_params.train_transformer is True")
+            self.use_pretrained_output = False
 
         self.tokenizer: T5TokenizerFast = AutoTokenizer.from_pretrained(model_params.transformer_name)
         self.transformer_config: T5Config = AutoConfig.from_pretrained(model_params.transformer_name)
@@ -252,9 +257,6 @@ def init_optimizer(main_module: MainModule, optimizer_params: DictConfig, n_epoc
 def filter_datasets_inplace_by_max_tokens_(datasets: DatasetDict, tokenizer: T5TokenizerFast, max_tokens: int):
     assert 'val' not in datasets, "filter_datasets_inplace_by_max_tokens_ should only be called before validation is split off"
 
-    orig_n_train = len(datasets['train'])
-    orig_n_test = len(datasets['test'])
-
     def filter_function(input_batch):
         chosen_input = input_batch['chosen']
         rejected_input = input_batch['rejected']
@@ -267,16 +269,15 @@ def filter_datasets_inplace_by_max_tokens_(datasets: DatasetDict, tokenizer: T5T
     datasets['train'] = datasets['train'].filter(function=filter_function, with_indices=False, batched=True, batch_size=1000)
     datasets['test'] = datasets['test'].filter(function=filter_function, with_indices=False, batched=True, batch_size=1000)
 
-    logger.info("Filtered Dataset stats:")
-    logger.info(f"   Training Dataset  : {len(datasets['train'])} / {orig_n_train} Points")
-    logger.info(f"   Testing Dataset   : {len(datasets['test'])} / {orig_n_test} Points")
 
-def calculate_pretrained_embeddings(datasets: DatasetDict, tokenizer: T5TokenizerFast, pretrainer: PretrainedEmbeddingsModel):
+def calculate_pretrained_embeddings_(datasets: DatasetDict, tokenizer: T5TokenizerFast, pretrainer: PretrainedEmbeddingsModel, batch_size_per_device: int):
 
     if isinstance(pretrainer, torch.nn.DataParallel):
         base_module = pretrainer.module
+        n_devices = len(pretrainer.device_ids)
     else:
         base_module = pretrainer
+        n_devices = 1
     base_module.calculate_only_pretrained = True
 
     def embed_single_data(input_strings, name):
@@ -286,58 +287,93 @@ def calculate_pretrained_embeddings(datasets: DatasetDict, tokenizer: T5Tokenize
             input_embeddings = pretrainer(input_tokenised.input_ids,
                                           input_tokenised.attention_mask,
                                           key_prefix=f'{name}_')
-        input_embeddings = {k: v.cpu() if torch.is_tensor(v) else v for k, v in input_embeddings.items()}
+        input_embeddings = {k: v.cpu().numpy() if torch.is_tensor(v) else v for k, v in input_embeddings.items()}
         return input_embeddings
 
     def embed_data(input_batch):
         return {**embed_single_data(input_batch['chosen'], 'chosen'),
                 **embed_single_data(input_batch['rejected'], 'rejected')}
 
-    sample_batch = embed_data(datasets['train'][0].keys())
+    sample_batch = embed_data(datasets['train'][0:n_devices])
+    orig_features = datasets['train'].features.copy()
     sample_features = {k: get_float_feature_from_sample_array(v) for k, v in sample_batch.items()}
-    sample_features = {k: v for k, v in sample_batch.items() if v is not None}
-    sample_features = None if not sample_features else Features(map=sample_features)
+    sample_features.update(orig_features)
+    sample_features = Features(sample_features)
 
-    logger.info(f"Keys before Embedding: {datasets['train'][0].keys()}")
-    datasets['train'] = datasets['train'].map(embed_data, batched=True, features=sample_features, with_indices=False, batch_size=768, load_from_cache_file=True)
-    datasets['test'] = datasets['test'].map(embed_data, batched=True, features=sample_features, with_indices=False, batch_size=768, load_from_cache_file=True)
-    datasets['val'] = datasets['val'].map(embed_data, batched=True, features=sample_features, with_indices=False, batch_size=768, load_from_cache_file=True)
-    logger.info(f"Keys after Embedding: {datasets['train'][0].keys()}")
+    batch_size = batch_size_per_device * n_devices
+    def get_batch_size_opt(dataset):
+        best_batch_size = batch_size
+        n_points = len(dataset)
+        while n_points % batch_size < n_devices:
+            best_batch_size -= 1
+        return best_batch_size
+
+    map_params = dict(batched=True, features=sample_features, with_indices=False, load_from_cache_file=True)
+    datasets['train'] = datasets['train'].map(embed_data, batch_size=get_batch_size_opt(datasets['train']), **map_params)
+    datasets['test'] = datasets['test'].map(embed_data, batch_size=get_batch_size_opt(datasets['test']), **map_params)
+    datasets['val'] = datasets['val'].map(embed_data, batch_size=get_batch_size_opt(datasets['val']), **map_params)
 
     base_module.calculate_only_pretrained = False
 
 
 def prepare_dataset(data_params: DictConfig, tokenizer: T5TokenizerFast, data_rng: torch.Generator,
                     pretrainer: Optional[PretrainedEmbeddingsModel] = None):
-    logger.info(f'Loading dataset with name {data_params.name} and data dir: {data_params.subdir}')
-    with timer(f"Loading dataset {data_params.name}"):
-        datasets: DatasetDict = load_dataset(data_params.name, data_dir=data_params.subdir)
 
-    logger.info("Original Dataset stats:")
-    logger.info(f"   Training Dataset  : {len(datasets['train'])} Points")
-    logger.info(f"   Testing Dataset   : {len(datasets['test'])} Points")
+    def prepare_dataset_from_subdir(subdir):
+        dataset_name = f'{data_params.name}:{subdir}'
+        logger.info(f'{dataset_name}: Loading dataset')
+        with timer(f"Loading dataset {dataset_name}"):
+            datasets: DatasetDict = load_dataset(data_params.name, data_dir=subdir)
 
-    with timer(f"Filtering the datasets to contain points with length <= {data_params.max_tokens}"):
-        filter_datasets_inplace_by_max_tokens_(datasets, tokenizer, data_params.max_tokens)
+        orig_n_train = len(datasets['train'])
+        orig_n_test = len(datasets['test'])
 
-    train_dset: Dataset = datasets['train']
-    test_dset: Dataset = datasets['test']
+        logger.info(f"{dataset_name}: Original Dataset stats:")
+        logger.info(f"{dataset_name}:    Training Dataset  : {orig_n_train} Points")
+        logger.info(f"{dataset_name}:    Testing Dataset   : {orig_n_test} Points")
 
-    train_val_test_dataset: DatasetDict = train_dset.train_test_split(test_size=data_params.val_fraction, seed=random_seed(data_rng).item())
-    train_val_test_dataset['val'] = train_val_test_dataset['test']
-    train_val_test_dataset['test'] = test_dset
+        with timer(f"{dataset_name}: Filtering the datasets to contain points with length <= {data_params.max_tokens}"):
+            filter_datasets_inplace_by_max_tokens_(datasets, tokenizer, data_params.max_tokens)
 
-    logger.info("Final Dataset stats:")
-    logger.info(f"   Training Dataset  : {len(train_val_test_dataset['train'])} Points")
-    logger.info(f"   Validation Dataset: {len(train_val_test_dataset['val'])} Points")
-    logger.info(f"   Testing Dataset   : {len(train_val_test_dataset['test'])} Points")
+        logger.info(f"{dataset_name}: Filtered Dataset stats:")
+        logger.info(f"{dataset_name}:    Training Dataset  : {len(datasets['train'])} / {orig_n_train} Points")
+        logger.info(f"{dataset_name}:    Testing Dataset   : {len(datasets['test'])} / {orig_n_test} Points")
 
-    if pretrainer is not None:
-        with timer(f"Calculating Embedding using model {pretrainer.__class__.__name__}"):
-            calculate_pretrained_embeddings(train_val_test_dataset, tokenizer, pretrainer)
+        train_dset: Dataset = datasets['train']
+        test_dset: Dataset = datasets['test']
+
+        train_val_test_dataset: DatasetDict = train_dset.train_test_split(test_size=data_params.val_fraction, seed=random_seed(data_rng).item())
+        train_val_test_dataset['val'] = train_val_test_dataset['test']
+        train_val_test_dataset['test'] = test_dset
+
+        logger.info(f"{dataset_name}: Final Dataset stats:")
+        logger.info(f"{dataset_name}:    Training Dataset  : {len(train_val_test_dataset['train'])} Points")
+        logger.info(f"{dataset_name}:    Validation Dataset: {len(train_val_test_dataset['val'])} Points")
+        logger.info(f"{dataset_name}:    Testing Dataset   : {len(train_val_test_dataset['test'])} Points")
+
+        # train_val_test_dataset['train'] = train_val_test_dataset['train'].select(np.arange(1000, dtype=np.int64))
+        if pretrainer is not None:
+            logger.info(f"{dataset_name}: Keys before Embedding: {train_val_test_dataset['train'][0].keys()}")
+            with timer(f"{dataset_name}: Calculating Embedding using model {pretrainer.__class__.__name__}"):
+                calculate_pretrained_embeddings_(train_val_test_dataset, tokenizer, pretrainer, data_params.pretrain_batch_size_per_device)
+            logger.info(f"{dataset_name}: Keys after Embedding: {train_val_test_dataset['train'][0].keys()}")
+
+        return train_val_test_dataset
+    
+    subdir_datasets_list: List[DatasetDict] = [prepare_dataset_from_subdir(subdir) for subdir in data_params.subdirs]
+    concat_dataset_dict = {}
+    for splitname in ('train', 'val', 'test'):
+        concat_dataset_dict[splitname] = concatenate_datasets([x[splitname] for x in subdir_datasets_list],
+                                                              split=NamedSplit(splitname))
+    catted_dataset: DatasetDict = DatasetDict(**concat_dataset_dict)
+
+    logger.info(f"Concatenated Dataset: Final Dataset stats:")
+    logger.info(f"Concatenated Dataset:    Training Dataset  : {len(catted_dataset['train'])} Points")
+    logger.info(f"Concatenated Dataset:    Validation Dataset: {len(catted_dataset['val'])} Points")
+    logger.info(f"Concatenated Dataset:    Testing Dataset   : {len(catted_dataset['test'])} Points")
 
     # Assign device for use with my custom loaders
-    for dset in train_val_test_dataset.values():
+    for dset in catted_dataset.values():
         dset.device = torch.device('cpu')
 
-    return train_val_test_dataset
+    return catted_dataset
