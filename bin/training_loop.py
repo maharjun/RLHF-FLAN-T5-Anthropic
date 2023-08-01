@@ -36,12 +36,12 @@ class MainModule(torch.nn.Module):
     # def __init__(self, module_params: DictConfig):
     #     pass
 
-    @abstractmethod
-    def output(self, batch_dataset_struct):
-        pass
+    # @abstractmethod
+    # def forward(self, batch_dataset_struct):
+    #     pass
 
     @abstractmethod
-    def backward(self, module_output: Output):
+    def backward(self, module_output):
         pass
 
 
@@ -57,7 +57,7 @@ class Tracker(ABC):
                 x.attach_global_info(global_info)
 
     @abstractmethod
-    def update(self, module_output: MainModule.Output, time=None):
+    def update(self, module_output, time=None):
         ...
 
     @abstractmethod
@@ -182,7 +182,7 @@ def evaluation(stage_name: str, main_module: MainModule, dataset: Dataset, batch
                 val_batch_dataset_struct = dataset[val_batch_inds]
                 if show_progress:
                     progress_tracker.update(len(val_batch_inds))
-                tracker.update(main_module.output(val_batch_dataset_struct))
+                tracker.update(main_module(val_batch_dataset_struct))
                 if i >= n_batches: break
         tracker.log()
         if model_queue is not None:
@@ -281,7 +281,7 @@ def run_train_eval_loop(dataset: DatasetDict, main_module: MainModule, optimizer
     for batch_dataset_struct, _ in train_data_loader:
         with train_timer("Training Timing"):
             main_module.train()
-            module_output: MainModule.Output = main_module.output(batch_dataset_struct)
+            module_output: MainModule.Output = main_module(batch_dataset_struct)
             main_module.backward(module_output)
 
         # Update train metrics etc

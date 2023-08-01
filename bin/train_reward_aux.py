@@ -118,7 +118,7 @@ class RewardMainModule(MainModule):
         else:
             return next(iter(self.reward_model.module.parameters())).device
 
-    def output(self, batch_dataset_struct):
+    def forward(self, batch_dataset_struct):
         if self.use_pretrained_output:
             chosen_input_embeddings = {k: v for k, v in batch_dataset_struct.items() if k.startswith('chosen_')}
             rejected_input_embeddings = {k: v for k, v in batch_dataset_struct.items() if k.startswith('rejected_')}
