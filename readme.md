@@ -91,7 +91,30 @@ The directory containing the implementation of all the various transformer reado
 
 #### Models implemented:
 
-All the following models are implemented in the 
+All the following models are implemented in the file `rewardmodels.py`
+
+1. *RewardFromLayerwiseAttention*: the hidden_states in each layer
+   of the encoder are pooled via attention pooling and combined across layers via
+   weighted pooling
+
+2. *RewardFromFullAttentionPooling*: the hidden_states in each layer
+   of the encoder are pooled via attention pooling and combined across layers via
+   attention pooling
+
+3. *RewardFromDecoderOutput*: the final output of the decoder is
+   used to readout the reward. In this model, the decoder output can be precomputed
+   for when the transformer is not trained.
+
+4. *RewardFromAttentionPooledEncoder*: the state corresponding to the first token
+   in each layer of the encoder is pooled together via attention pooling. In this
+   model, the encoder hidden states can be precomputed for when the transformer is
+   not trained.
+
+4. *RewardFromAttentionPooledDecoder*: the state corresponding to the first token
+   in each layer of the decoder is pooled together via attention pooling. In this
+   model, the decoder hidden states can be precomputed for when the transformer is
+   not trained.
+
 ### rlhf_flant5/utils directory
 
 Generic Utilities directory 
