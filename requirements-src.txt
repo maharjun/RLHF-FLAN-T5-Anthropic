@@ -17,4 +17,3 @@ dill==0.3.6
 tqdm
 git+https://github.com/IGITUGraz/SimManager.git@v0.9.0#egg=simmanager
 git+https://github.com/IGITUGraz/loggingext.git@v0.3.1#egg=loggingext
-git+https://github.com/IGITUGraz/scoop.git@v0.7.2.0-dev10#egg=scoop

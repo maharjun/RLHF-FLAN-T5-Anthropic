@@ -22,7 +22,7 @@ data:
 # Model Parameters
 model:
   transformer_name: google/flan-t5-small
-  train_transformer: False
+  train_transformer: True
   use_pretrained_output: True
 
 

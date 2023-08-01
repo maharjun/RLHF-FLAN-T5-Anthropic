@@ -1,0 +1,17 @@
+name: rlhf-flant5-env
+channels:
+  - pytorch
+  - nvidia
+  - conda-forge
+dependencies:
+  - python=3.8
+  - pytorch
+  - torchvision
+  - torchaudio
+  - pytorch-cuda=11.7
+  - numpy
+  - matplotlib
+  - scikit-learn
+  - scipy
+  - pandas
+  - tensorboard

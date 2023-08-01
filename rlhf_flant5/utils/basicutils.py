@@ -4,9 +4,6 @@ import inspect
 import functools
 from contextlib import contextmanager
 from os.path import join as opj
-from pathlib import Path
-from natsort import natsorted
-from typing import List
 from contextlib import ExitStack
 
 from simmanager import SimManager, Paths
