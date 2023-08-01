@@ -87,30 +87,23 @@ class RewardFromLayerwiseAttention(torch.nn.Module):
         self.pretrained_encoder: T5Stack = pretrained_transformer.encoder
         self.layerwise_aggregators = torch.nn.ModuleList([AttentionWithGeGLU(get_hidden_dim(block), pooling_output_dim)
                                                           for block in self.pretrained_encoder.block[-self.n_blocks_to_use:]])
-        self.cross_layer_weighted_pooling = WeightedPooling(len(self.pretrained_encoder.block))
+        self.cross_layer_weighted_pooling = WeightedPooling(n_blocks_to_use)
         self.readout = SimpleMLPWithGELU(pooling_output_dim, 1, readout_additional_layers)
 
 
-    def get_PTE(self, input_ids, attention_mask):
+    def forward(self, input_ids, attention_mask):
         encoder_outputs = self.pretrained_encoder(input_ids,
                                                   attention_mask=attention_mask,
                                                   output_hidden_states=True)
         all_layer_hidden_states = encoder_outputs.hidden_states[-self.n_blocks_to_use:]
-        return {f'hidden_state_{i}': hidden_state for i, hidden_state in enumerate(all_layer_hidden_states)}
-
-
-    def forward_with_PTE(self, *all_layer_hidden_states):
         all_layerwise_pooled_states = torch.stack([layerwise_agg(x) for layerwise_agg, x
                                                    in zip(self.layerwise_aggregators, all_layer_hidden_states)], -2)
         final_pooled_output = self.cross_layer_weighted_pooling(all_layerwise_pooled_states)
         predicted_reward = self.readout(final_pooled_output).squeeze(-1)
         return predicted_reward
 
-    def train(self, mode: bool=True):
-        super().train(mode)
 
-
-class RewardFromFullAttentionPoolings(torch.nn.Module):
+class RewardFromFullAttentionPooling(torch.nn.Module):
     def __init__(self, pretrained_transformer: T5Model, layer_pooling_output_dim: int, cross_layer_pooling_output_dim: int, readout_additional_layers: List[int] = [],
                  n_blocks_to_use: Optional[int] = None, use_pretrained_output=False):
 
@@ -127,24 +120,17 @@ class RewardFromFullAttentionPoolings(torch.nn.Module):
         self.attention_pooling = AttentionWithGeGLU(len(self.pretrained_encoder.block), cross_layer_pooling_output_dim)
         self.readout = SimpleMLPWithGELU(cross_layer_pooling_output_dim, 1, readout_additional_layers)
 
+    def forward(self, input_ids, attention_mask):
 
-    def get_PTE(self, input_ids, attention_mask):
         encoder_outputs = self.pretrained_encoder(input_ids,
                                                   attention_mask=attention_mask,
                                                   output_hidden_states=True)
         all_layer_hidden_states = encoder_outputs.hidden_states[-self.n_blocks_to_use:]
-        return {f'hidden_state_{i}': hidden_state for i, hidden_state in enumerate(all_layer_hidden_states)}
-
-
-    def forward_with_PTE(self, *all_layer_hidden_states):
         all_layerwise_pooled_states = torch.stack([layerwise_agg(x) for layerwise_agg, x
                                                    in zip(self.layerwise_aggregators, all_layer_hidden_states)], -2)
         final_pooled_output = self.attention_pooling(all_layerwise_pooled_states)
         predicted_reward = self.readout(final_pooled_output).squeeze(-1)
         return predicted_reward
-
-    def train(self, mode: bool=True):
-        super().train(mode)
 
 
 class RewardFromDecoderOutput(PretrainedEmbeddingsModel):
@@ -168,7 +154,6 @@ class RewardFromDecoderOutput(PretrainedEmbeddingsModel):
         return self.readout(decoder_output).squeeze(-1)
 
 
-
 class RewardFromAttentionPooledEncoder(PretrainedEmbeddingsModel):
     def __init__(self, pretrained_transformer: T5Model, pooling_output_dim, readout_additional_layers: List[int] = [],
                  n_blocks_to_use: Optional[int] = None, use_pretrained_output=False):
@@ -185,7 +170,7 @@ class RewardFromAttentionPooledEncoder(PretrainedEmbeddingsModel):
 
         self.readout = SimpleMLPWithGELU(pooling_output_dim, 1, readout_additional_layers)
 
-    # This should have the same signature expected from input_ids=None, attention_mask=None, encoder_hidden_states=None, encoder_attention_mask=None, inputs_embeds=None, head_mask=None, cross_attn_head_mask=None, past_key_values=None, use_cache=None, output_attentions=None, output_hidden_states=None, return_dict=None
+    # This should have the same signature expected from forward
     def get_PTE(self, input_ids, attention_mask):
         encoder_outputs = self.pretrained_encoder(input_ids, attention_mask, output_hidden_states=True)
         encoder_hidden_states = torch.stack([x[:, 0] for x in encoder_outputs.hidden_states[-self.n_blocks_to_use:]], dim=1)
@@ -198,7 +183,6 @@ class RewardFromAttentionPooledEncoder(PretrainedEmbeddingsModel):
         attention_pool_out = self.attention_pooling(encoder_hidden_states)
         predicted_reward = self.readout(attention_pool_out).squeeze(-1)
         return predicted_reward
-
 
 
 class RewardFromAttentionPooledDecoder(PretrainedEmbeddingsModel):
@@ -218,7 +202,7 @@ class RewardFromAttentionPooledDecoder(PretrainedEmbeddingsModel):
 
         self.readout = SimpleMLPWithGELU(pooling_output_dim, 1, readout_additional_layers)
 
-    # This should have the same signature expected from input_ids=None, attention_mask=None, encoder_hidden_states=None, encoder_attention_mask=None, inputs_embeds=None, head_mask=None, cross_attn_head_mask=None, past_key_values=None, use_cache=None, output_attentions=None, output_hidden_states=None, return_dict=None
+    # This should have the same signature expected from forward
     def get_PTE(self, input_ids, attention_mask):
         decoder_input_ids = torch.zeros((input_ids.shape[0], 1), dtype=input_ids.dtype, device=input_ids.device)
         encoder_outputs = self.pretrained_encoder(input_ids, attention_mask)
@@ -239,10 +223,9 @@ class RewardFromAttentionPooledDecoder(PretrainedEmbeddingsModel):
         return predicted_reward
 
 
-
 RewardModelNameMap = {
     'RewardFromLayerwiseAttention': RewardFromLayerwiseAttention,
-    'RewardFromFullAttentionPoolings': RewardFromFullAttentionPoolings,
+    'RewardFromFullAttentionPooling': RewardFromFullAttentionPooling,
     'RewardFromDecoderOutput': RewardFromDecoderOutput,
     'RewardFromAttentionPooledEncoder': RewardFromAttentionPooledEncoder,
     'RewardFromAttentionPooledDecoder': RewardFromAttentionPooledDecoder,

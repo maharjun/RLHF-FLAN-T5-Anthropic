@@ -83,5 +83,5 @@ def main(cfg: DictConfig, output_paths: Paths):
         dill.dump(main_module, fout, protocol=-1)
 
 if __name__ == '__main__':
-    # simmanager_context_decorator.debug = True
+    simmanager_context_decorator.debug = True
     main()

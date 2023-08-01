@@ -87,10 +87,16 @@ class RewardMainModule(MainModule):
 
         self.tokenizer: T5TokenizerFast = AutoTokenizer.from_pretrained(model_params.transformer_name)
         self.transformer_config: T5Config = AutoConfig.from_pretrained(model_params.transformer_name)
+
         model_class = RewardModelNameMap[model_params.reward_model_type]
-        self.reward_model: torch.nn.Module
-        self.reward_model = model_class(pretrained_transformer, **model_params.reward_model,
-                                        use_pretrained_output=self.use_pretrained_output)
+        model_kwargs = dict(**model_params.reward_model)
+        if issubclass(model_class, PretrainedEmbeddingsModel):
+            model_kwargs.update(use_pretrained_output=self.use_pretrained_output)
+        elif self.use_pretrained_output:
+            logger.warning(f"use_pretrained_output assumed False as module {model_class.__name__} does not support it")
+            self.use_pretrained_output = False
+
+        self.reward_model: torch.nn.Module = model_class(pretrained_transformer, **model_kwargs)
 
         if device:
             self.to(device)
@@ -308,7 +314,7 @@ def calculate_pretrained_embeddings_(datasets: DatasetDict, tokenizer: T5Tokeniz
             best_batch_size -= 1
         return best_batch_size
 
-    map_params = dict(batched=True, features=sample_features, with_indices=False, load_from_cache_file=True)
+    map_params = dict(batched=True, features=sample_features, with_indices=False, load_from_cache_file=False)
     datasets['train'] = datasets['train'].map(embed_data, batch_size=get_batch_size_opt(datasets['train']), **map_params)
     datasets['test'] = datasets['test'].map(embed_data, batch_size=get_batch_size_opt(datasets['test']), **map_params)
     datasets['val'] = datasets['val'].map(embed_data, batch_size=get_batch_size_opt(datasets['val']), **map_params)

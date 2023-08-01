@@ -1,4 +1,4 @@
-reward_model_type: RewardFromLayerwiseAttention
+reward_model_type: RewardFromFullAttentionPooling
 reward_model:
   layer_pooling_output_dim: 256
   cross_layer_pooling_output_dim: 256

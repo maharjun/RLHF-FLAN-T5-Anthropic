@@ -8,7 +8,7 @@ sim_name: Reward-Model-Training
 # Core Parameters
 seed: 103
 device_name: ${gpu_if_available:0}
-use_multi_gpu_if_available: True
+use_multi_gpu_if_available: False
 
 # Data parameters
 data:
@@ -30,8 +30,8 @@ model:
 training:
   optimizer:
     type: Adam  # Adam / AdamW
-    init_lr: 1.0e-5
-    final_lr: 2.0e-6
+    init_lr: 2.0e-4
+    final_lr: 5.0e-5
     weight_decay: 0.0
     correct_bias: False
 

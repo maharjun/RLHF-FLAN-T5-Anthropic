@@ -65,8 +65,35 @@ Since we're using hydra for the configuration, any of the parameters found in re
 
 The logs, tensorboard data, and the best model by validation error can then be accessed in the directory `$RESULTS_ROOT_DIR/Reward-Model-Training/desc-<description>,index-<index>`.
 
-# File Structure
+File Structure
+--------------
 
-1. hydra config: config/reward_model_config.py
-2. main file: bin/train_reward_model.py
-3. models in models/reward_models
+### config
+
+
+The hydra configs for reward modeling and the various transformer readout models tried are here.
+
+1. `reward_model_config.yaml`: Configuration for reward modeling
+2. `model/*`: The configurations for each of the different transformer readout models
+
+### bin directory
+
+All the code corresponding to execution of the training loop
+
+1. `bin/train_reward_model.py`: The main script to run the training loop 
+2. `bin/train_reward_aux.py`: Auxiliary utilities pertaining to reading the config, and
+   initializing the necessary loop modules, optimizers, and data.
+3. `bin/training_loop.py`: Implementation of a generic feature-rich, configurable training loop. 
+
+### rlhf_flant5/models
+
+The directory containing the implementation of all the various transformer readout models.
+
+#### Models implemented:
+
+All the following models are implemented in the 
+### rlhf_flant5/utils directory
+
+Generic Utilities directory 
+
+> Code in this directory is code I have written previously and not exclusively for this task
