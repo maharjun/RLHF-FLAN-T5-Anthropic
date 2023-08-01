@@ -53,17 +53,25 @@ The configuration for training the reward model is in the file `config/reward_mo
 ```
 python bin/train_reward_model.py desc=ete_attention_pooled_encoder \
     model=attention_pooled_encoder \
-    model.train_transformer=False \
+    model.train_transformer=True \
     model.use_pretrained_output=False \
-    training.loop.train_batch_size=256 \
+    use_multi_gpu_if_available=True \
+    training.loop.train_batch_size=96 \
     training.loop.val_batch_size=1024 \
     training.loop.n_epochs=6
     index=1
 ```
 
-Since we're using hydra for the configuration, any of the parameters found in reward_model_config can be changed on the command line. You may change the `desc` (description) and `index` parameter to create a unique directory to store the results
+Since we're using hydra for the configuration, any of the parameters found in reward_model_config can be changed on the command line. You may change the `desc` (description) and `index` parameter to create a unique directory to store the results. Additionally, Change the batch sizes to fit GPU memory. The above is run using 4 GPU's of 16GB each.
 
-The logs, tensorboard data, and the best model by validation error can then be accessed in the directory `$RESULTS_ROOT_DIR/Reward-Model-Training/desc-<description>,index-<index>`.
+The logs, tensorboard data, and the best model by validation error can then be accessed in the directory `$RESULTS_ROOT_DIR/Reward-Model-Training/desc-<description>,index-<index>`. In this case it would be the directory `$RESULTS_ROOT_DIR/Reward-Model-Training/desc-ete_attention_pooled_encoder,index-1`
+
+> NOTE: SimManager will refuse to run the simulation if:
+> 
+> 1. There are any untracked files in the repository that are not ignored by .gitignore
+> 2. The destination directory already exists (e.g. created in a previous call). In
+>    that case, simply change the description or update the index to create a new
+>    directory
 
 File Structure
 --------------
